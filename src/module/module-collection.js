@@ -37,7 +37,7 @@ export default class ModuleCollection {
       const parent = this.get(path.slice(0, -1))
       parent.addChild(path[path.length - 1], newModule)
     }
-
+    // 注册嵌套模块
     // register nested modules
     if (rawModule.modules) {
       forEachValue(rawModule.modules, (rawChildModule, key) => {
