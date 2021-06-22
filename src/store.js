@@ -2,7 +2,12 @@ import applyMixin from './mixin'
 import devtoolPlugin from './plugins/devtool'
 import ModuleCollection from './module/module-collection'
 import { forEachValue, isObject, isPromise, assert, partial } from './util'
-
+/**
+ * _subscribers fn[] , 成员是一个函数，在目录/plugins/devvtool.js，当提交mutation时，
+ * 遍历调用函数，传入参数matation,state,在插件的全局hook上emit事件通知插件发生了mutation
+ * 
+ *  _actionSubscribers 同上
+ */
 let Vue // bind on install
 
 export class Store {
@@ -14,7 +19,7 @@ export class Store {
       install(window.Vue)
     }
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(Vue, `must call Vue.use(Vuex) before creating a store instance.`)
       assert(typeof Promise !== 'undefined', `vuex requires a Promise polyfill in this browser.`)
       assert(this instanceof Store, `store must be called with the new operator.`)
@@ -27,14 +32,14 @@ export class Store {
 
     // store internal state
     this._committing = false
-    this._actions = Object.create(null)
+    this._actions = Object.create(null) //_actions
     this._actionSubscribers = []
-    this._mutations = Object.create(null)
+    this._mutations = Object.create(null)  //mutations
     this._wrappedGetters = Object.create(null)
-    this._modules = new ModuleCollection(options)
-    this._modulesNamespaceMap = Object.create(null)
+    this._modules = new ModuleCollection(options) // 注册模块集合
+    this._modulesNamespaceMap = Object.create(null) //模块命名空间 map
     this._subscribers = []
-    this._watcherVM = new Vue()
+    this._watcherVM = new Vue() // 创建Vue实例，用于观察状态
     this._makeLocalGettersCache = Object.create(null)
 
     // bind commit and dispatch to self
@@ -75,11 +80,19 @@ export class Store {
   }
 
   set state (v) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(false, `use store.replaceState() to explicit replace store state.`)
     }
   }
-
+  /**
+   * 提交mutation操作
+   * 可以看到，提交mutation操作之后，同步调用了 devtools 的订阅方法，来通知 devtools 插件更新状态;
+   * 所有的state更新的唯一途径就是提交mutation，异步操作通过action提交mutation，这样的话可以方便的跟踪每一个状态的变化，
+   * 每次mutation执行完成对应一个新的状态，这样devtools就可以打个快照存起来，还可以时间旅行，如果mutation支持异步操作，
+   * 就无法知道何时更新的， 无法很好的进行状态跟踪，给调试带来困难
+   * mutation里面进行异步操作的后果：mutation执行完后，devtools订阅方法同步执行，但是由于状态此时还没发生变化，
+   * devtools无法正确跟踪状态变化；
+   */
   commit (_type, _payload, _options) {
     // check object-style commit
     const {
@@ -90,24 +103,26 @@ export class Store {
 
     const mutation = { type, payload }
     const entry = this._mutations[type]
+    // 如果找不到对应的mutation报错
     if (!entry) {
-      if (process.env.NODE_ENV !== 'production') {
+      if (__DEV__) {
         console.error(`[vuex] unknown mutation type: ${type}`)
       }
       return
     }
+    // 调用 mutation，传入载荷
     this._withCommit(() => {
       entry.forEach(function commitIterator (handler) {
         handler(payload)
       })
     })
-
+    // 如果订阅同步调用退订，浅复制可以防止迭代无效
     this._subscribers
       .slice() // shallow copy to prevent iterator invalidation if subscriber synchronously calls unsubscribe
       .forEach(sub => sub(mutation, this.state))
 
     if (
-      process.env.NODE_ENV !== 'production' &&
+      __DEV__ &&
       options && options.silent
     ) {
       console.warn(
@@ -116,8 +131,11 @@ export class Store {
       )
     }
   }
-
-  dispatch (_type, _payload) {
+/**
+ *提交 action
+ 可以看到进行了异步处理，提交action，会等待返回异步处理结果
+ */
+dispatch (_type, _payload) {
     // check object-style dispatch
     const {
       type,
@@ -125,56 +143,72 @@ export class Store {
     } = unifyObjectStyle(_type, _payload)
 
     const action = { type, payload }
-    const entry = this._actions[type]
+    const entry = this._actions[type]  //这里的entry是经过promise包裹的action
     if (!entry) {
-      if (process.env.NODE_ENV !== 'production') {
+      if (__DEV__) {
         console.error(`[vuex] unknown action type: ${type}`)
       }
       return
     }
-
+// 通知 devtools action被提交
     try {
       this._actionSubscribers
         .slice() // shallow copy to prevent iterator invalidation if subscriber synchronously calls unsubscribe
         .filter(sub => sub.before)
         .forEach(sub => sub.before(action, this.state))
     } catch (e) {
-      if (process.env.NODE_ENV !== 'production') {
+      if (__DEV__) {
         console.warn(`[vuex] error in before action subscribers: `)
         console.error(e)
       }
     }
-
+// 调用 action
     const result = entry.length > 1
       ? Promise.all(entry.map(handler => handler(payload)))
       : entry[0](payload)
-
-    return result.then(res => {
-      try {
-        this._actionSubscribers
-          .filter(sub => sub.after)
-          .forEach(sub => sub.after(action, this.state))
-      } catch (e) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(`[vuex] error in after action subscribers: `)
-          console.error(e)
+//返回promise,resolve action调用的结果
+    return new Promise((resolve, reject) => {
+      result.then(res => {
+        // 得到异步结果后，调用 after方法，通知 devtools
+        // TODO: after在哪里传入的 
+        try {
+          this._actionSubscribers
+            .filter(sub => sub.after)
+            .forEach(sub => sub.after(action, this.state))
+        } catch (e) {
+          if (__DEV__) {
+            console.warn(`[vuex] error in after action subscribers: `)
+            console.error(e)
+          }
         }
-      }
-      return res
+        resolve(res)
+      }, error => {
+        try {
+          this._actionSubscribers
+            .filter(sub => sub.error)
+            .forEach(sub => sub.error(action, this.state, error))
+        } catch (e) {
+          if (__DEV__) {
+            console.warn(`[vuex] error in error action subscribers: `)
+            console.error(e)
+          }
+        }
+        reject(error)
+      })
     })
   }
 
-  subscribe (fn) {
-    return genericSubscribe(fn, this._subscribers)
+  subscribe (fn, options) {
+    return genericSubscribe(fn, this._subscribers, options)
   }
 
-  subscribeAction (fn) {
+  subscribeAction (fn, options) {
     const subs = typeof fn === 'function' ? { before: fn } : fn
-    return genericSubscribe(subs, this._actionSubscribers)
+    return genericSubscribe(subs, this._actionSubscribers, options)
   }
 
   watch (getter, cb, options) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(typeof getter === 'function', `store.watch only accepts a function.`)
     }
     return this._watcherVM.$watch(() => getter(this.state, this.getters), cb, options)
@@ -189,7 +223,7 @@ export class Store {
   registerModule (path, rawModule, options = {}) {
     if (typeof path === 'string') path = [path]
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(Array.isArray(path), `module path must be a string or an Array.`)
       assert(path.length > 0, 'cannot register the root module by using registerModule.')
     }
@@ -203,7 +237,7 @@ export class Store {
   unregisterModule (path) {
     if (typeof path === 'string') path = [path]
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(Array.isArray(path), `module path must be a string or an Array.`)
     }
 
@@ -213,6 +247,16 @@ export class Store {
       Vue.delete(parentState, path[path.length - 1])
     })
     resetStore(this)
+  }
+
+  hasModule (path) {
+    if (typeof path === 'string') path = [path]
+
+    if (__DEV__) {
+      assert(Array.isArray(path), `module path must be a string or an Array.`)
+    }
+
+    return this._modules.isRegistered(path)
   }
 
   hotUpdate (newOptions) {
@@ -228,9 +272,11 @@ export class Store {
   }
 }
 
-function genericSubscribe (fn, subs) {
+function genericSubscribe (fn, subs, options) {
   if (subs.indexOf(fn) < 0) {
-    subs.push(fn)
+    options && options.prepend
+      ? subs.unshift(fn)
+      : subs.push(fn)
   }
   return () => {
     const i = subs.indexOf(fn)
@@ -308,7 +354,7 @@ function installModule (store, rootState, path, module, hot) {
 
   // register in namespace map
   if (module.namespaced) {
-    if (store._modulesNamespaceMap[namespace] && process.env.NODE_ENV !== 'production') {
+    if (store._modulesNamespaceMap[namespace] && __DEV__) {
       console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
     }
     store._modulesNamespaceMap[namespace] = module
@@ -319,7 +365,7 @@ function installModule (store, rootState, path, module, hot) {
     const parentState = getNestedState(rootState, path.slice(0, -1))
     const moduleName = path[path.length - 1]
     store._withCommit(() => {
-      if (process.env.NODE_ENV !== 'production') {
+      if (__DEV__) {
         if (moduleName in parentState) {
           console.warn(
             `[vuex] state field "${moduleName}" was overridden by a module with the same name at "${path.join('.')}"`
@@ -368,7 +414,7 @@ function makeLocalContext (store, namespace, path) {
 
       if (!options || !options.root) {
         type = namespace + type
-        if (process.env.NODE_ENV !== 'production' && !store._actions[type]) {
+        if (__DEV__ && !store._actions[type]) {
           console.error(`[vuex] unknown local action type: ${args.type}, global type: ${type}`)
           return
         }
@@ -384,7 +430,7 @@ function makeLocalContext (store, namespace, path) {
 
       if (!options || !options.root) {
         type = namespace + type
-        if (process.env.NODE_ENV !== 'production' && !store._mutations[type]) {
+        if (__DEV__ && !store._mutations[type]) {
           console.error(`[vuex] unknown local mutation type: ${args.type}, global type: ${type}`)
           return
         }
@@ -434,14 +480,14 @@ function makeLocalGetters (store, namespace) {
 
   return store._makeLocalGettersCache[namespace]
 }
-
+// 注册mutation
 function registerMutation (store, type, handler, local) {
   const entry = store._mutations[type] || (store._mutations[type] = [])
   entry.push(function wrappedMutationHandler (payload) {
     handler.call(store, local.state, payload)
   })
 }
-
+// 注册actions，用promise包裹,返回promise
 function registerAction (store, type, handler, local) {
   const entry = store._actions[type] || (store._actions[type] = [])
   entry.push(function wrappedActionHandler (payload) {
@@ -469,7 +515,7 @@ function registerAction (store, type, handler, local) {
 
 function registerGetter (store, type, rawGetter, local) {
   if (store._wrappedGetters[type]) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       console.error(`[vuex] duplicate getter key: ${type}`)
     }
     return
@@ -486,7 +532,7 @@ function registerGetter (store, type, rawGetter, local) {
 
 function enableStrictMode (store) {
   store._vm.$watch(function () { return this._data.$$state }, () => {
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       assert(store._committing, `do not mutate vuex store state outside mutation handlers.`)
     }
   }, { deep: true, sync: true })
@@ -503,7 +549,7 @@ function unifyObjectStyle (type, payload, options) {
     type = type.type
   }
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (__DEV__) {
     assert(typeof type === 'string', `expects string as the type, but found ${typeof type}.`)
   }
 
@@ -512,7 +558,7 @@ function unifyObjectStyle (type, payload, options) {
 
 export function install (_Vue) {
   if (Vue && _Vue === Vue) {
-    if (process.env.NODE_ENV !== 'production') {
+    if (__DEV__) {
       console.error(
         '[vuex] already installed. Vue.use(Vuex) should be called only once.'
       )
