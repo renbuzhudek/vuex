@@ -17,6 +17,7 @@ export default function (Vue) {
 
   /**
    * Vuex init hook, injected into each instances init hooks list.
+   * Vuex的初始化函数，beforeCreate钩子执行，注入到每一个实例上 $store 属性
    */
 
   function vuexInit () {

@@ -35,14 +35,14 @@ export class Store {
     this._actions = Object.create(null) //_actions
     this._actionSubscribers = []
     this._mutations = Object.create(null)  //mutations
-    this._wrappedGetters = Object.create(null)
-    this._modules = new ModuleCollection(options) // 注册模块集合
+    this._wrappedGetters = Object.create(null) // getters 的包装对象
+    this._modules = new ModuleCollection(options) // 递归注册模块集合
     this._modulesNamespaceMap = Object.create(null) //模块命名空间 map
     this._subscribers = []
     this._watcherVM = new Vue() // 创建Vue实例，用于观察状态
-    this._makeLocalGettersCache = Object.create(null)
+    this._makeLocalGettersCache = Object.create(null) //使本地getter缓存
 
-    // bind commit and dispatch to self
+    // bind commit and dispatch to self  绑定 commit 和 dispatch 到 实例自身
     const store = this
     const { dispatch, commit } = this
     this.dispatch = function boundDispatch (type, payload) {
@@ -52,33 +52,33 @@ export class Store {
       return commit.call(store, type, payload, options)
     }
 
-    // strict mode
+    // strict mode 是否严格模式
     this.strict = strict
 
     const state = this._modules.root.state
 
-    // init root module.
+    // init root module. 初始化根模块 这也递归地注册所有子模块 并收集 _wrappedGetters 中的所有模块getter
     // this also recursively registers all sub-modules
     // and collects all module getters inside this._wrappedGetters
     installModule(this, state, [], this._modules.root)
 
-    // initialize the store vm, which is responsible for the reactivity
+    // initialize the store vm, which is responsible for the reactivity  初始化负责反应性的存储vm 还将_wrappedgetter注册为计算属性）
     // (also registers _wrappedGetters as computed properties)
     resetStoreVM(this, state)
 
-    // apply plugins
+    // apply plugins 使用插件
     plugins.forEach(plugin => plugin(this))
-
+// 使用 devtool 插件
     const useDevtools = options.devtools !== undefined ? options.devtools : Vue.config.devtools
     if (useDevtools) {
       devtoolPlugin(this)
     }
   }
-
+// 代理 state 状态对象
   get state () {
     return this._vm._data.$$state
   }
-
+// 直接设置state对象时抛出错误
   set state (v) {
     if (__DEV__) {
       assert(false, `use store.replaceState() to explicit replace store state.`)
@@ -347,12 +347,12 @@ function resetStoreVM (store, state, hot) {
     Vue.nextTick(() => oldVm.$destroy())
   }
 }
-
+// 模块安装
 function installModule (store, rootState, path, module, hot) {
   const isRoot = !path.length
-  const namespace = store._modules.getNamespace(path)
+  const namespace = store._modules.getNamespace(path)//获取命名空间名称
 
-  // register in namespace map
+  // register in namespace map 将namespace注册到命名空间 map对象 _modulesNamespaceMap 上
   if (module.namespaced) {
     if (store._modulesNamespaceMap[namespace] && __DEV__) {
       console.error(`[vuex] duplicate namespace ${namespace} for the namespaced module ${path.join('/')}`)
@@ -377,7 +377,7 @@ function installModule (store, rootState, path, module, hot) {
   }
 
   const local = module.context = makeLocalContext(store, namespace, path)
-
+  // 将命名空间的mutation注册到跟store上
   module.forEachMutation((mutation, key) => {
     const namespacedType = namespace + key
     registerMutation(store, namespacedType, mutation, local)
@@ -393,7 +393,7 @@ function installModule (store, rootState, path, module, hot) {
     const namespacedType = namespace + key
     registerGetter(store, namespacedType, getter, local)
   })
-
+// 递归注册子模块
   module.forEachChild((child, key) => {
     installModule(store, rootState, path.concat(key), child, hot)
   })
@@ -529,7 +529,7 @@ function registerGetter (store, type, rawGetter, local) {
     )
   }
 }
-
+// 启用严格模式 , 禁止在vuex mutation回调之外修改状态
 function enableStrictMode (store) {
   store._vm.$watch(function () { return this._data.$$state }, () => {
     if (__DEV__) {
@@ -537,11 +537,11 @@ function enableStrictMode (store) {
     }
   }, { deep: true, sync: true })
 }
-
+// 获取嵌套状态
 function getNestedState (state, path) {
   return path.reduce((state, key) => state[key], state)
 }
-
+// 参数转换
 function unifyObjectStyle (type, payload, options) {
   if (isObject(type) && type.type) {
     options = payload
