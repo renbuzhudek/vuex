@@ -285,7 +285,7 @@ function genericSubscribe (fn, subs, options) {
     }
   }
 }
-
+// 重置仓库
 function resetStore (store, hot) {
   store._actions = Object.create(null)
   store._mutations = Object.create(null)
@@ -382,13 +382,13 @@ function installModule (store, rootState, path, module, hot) {
     const namespacedType = namespace + key
     registerMutation(store, namespacedType, mutation, local)
   })
-
+// 将命名空间的 action 注册到跟store上
   module.forEachAction((action, key) => {
     const type = action.root ? key : namespace + key
     const handler = action.handler || action
     registerAction(store, type, handler, local)
   })
-
+// 将命名空间的 getter 注册到跟store上
   module.forEachGetter((getter, key) => {
     const namespacedType = namespace + key
     registerGetter(store, namespacedType, getter, local)
@@ -529,7 +529,7 @@ function registerGetter (store, type, rawGetter, local) {
     )
   }
 }
-// 启用严格模式 , 禁止在vuex mutation回调之外修改状态
+// 启用严格模式 , 禁止在vuex mutation回调之外修改状态,检测到状态改变时，抛出错误
 function enableStrictMode (store) {
   store._vm.$watch(function () { return this._data.$$state }, () => {
     if (__DEV__) {
