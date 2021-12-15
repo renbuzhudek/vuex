@@ -116,7 +116,7 @@ export class Store {
         handler(payload)
       })
     })
-    // 如果订阅同步调用退订，浅复制可以防止迭代无效
+    // 浅拷贝，防止订阅者同步调用unsubscribe时迭代器失效
     this._subscribers
       .slice() // shallow copy to prevent iterator invalidation if subscriber synchronously calls unsubscribe
       .forEach(sub => sub(mutation, this.state))
@@ -197,7 +197,7 @@ dispatch (_type, _payload) {
       })
     })
   }
-
+//订阅 store 的 mutation， 回调函数会在每个 mutation 完成后调用，退订调用返回的函数即可
   subscribe (fn, options) {
     return genericSubscribe(fn, this._subscribers, options)
   }
@@ -206,20 +206,20 @@ dispatch (_type, _payload) {
     const subs = typeof fn === 'function' ? { before: fn } : fn
     return genericSubscribe(subs, this._actionSubscribers, options)
   }
-
+// 响应式侦听 getter 的返回值
   watch (getter, cb, options) {
     if (__DEV__) {
       assert(typeof getter === 'function', `store.watch only accepts a function.`)
     }
     return this._watcherVM.$watch(() => getter(this.state, this.getters), cb, options)
   }
-
+// 替换 store 的根状态，仅用状态合并或时光旅行调试。
   replaceState (state) {
     this._withCommit(() => {
       this._vm._data.$$state = state
     })
   }
-
+// 注册一个动态模块
   registerModule (path, rawModule, options = {}) {
     if (typeof path === 'string') path = [path]
 
@@ -233,7 +233,7 @@ dispatch (_type, _payload) {
     // reset store to update getters...
     resetStoreVM(this, this.state)
   }
-
+// 卸载一个动态模块
   unregisterModule (path) {
     if (typeof path === 'string') path = [path]
 
@@ -248,7 +248,7 @@ dispatch (_type, _payload) {
     })
     resetStore(this)
   }
-
+// 检查该模块的名字是否已经被注册
   hasModule (path) {
     if (typeof path === 'string') path = [path]
 
@@ -258,7 +258,7 @@ dispatch (_type, _payload) {
 
     return this._modules.isRegistered(path)
   }
-
+// 热替换新的 action 和 mutation
   hotUpdate (newOptions) {
     this._modules.update(newOptions)
     resetStore(this, true)
@@ -297,7 +297,7 @@ function resetStore (store, hot) {
   // reset vm
   resetStoreVM(store, state, hot)
 }
-
+// 重置仓库上的 vm
 function resetStoreVM (store, state, hot) {
   const oldVm = store._vm
 
@@ -335,7 +335,7 @@ function resetStoreVM (store, state, hot) {
   if (store.strict) {
     enableStrictMode(store)
   }
-
+// 销毁旧的 vm
   if (oldVm) {
     if (hot) {
       // dispatch changes in all subscribed watchers
@@ -402,6 +402,7 @@ function installModule (store, rootState, path, module, hot) {
 /**
  * make localized dispatch, commit, getters and state
  * if there is no namespace, just use root ones
+ * 创建本地化的 dispatch, commit, getters and state
  */
 function makeLocalContext (store, namespace, path) {
   const noNamespace = namespace === ''
@@ -512,7 +513,7 @@ function registerAction (store, type, handler, local) {
     }
   })
 }
-
+// 注册getter函数
 function registerGetter (store, type, rawGetter, local) {
   if (store._wrappedGetters[type]) {
     if (__DEV__) {
